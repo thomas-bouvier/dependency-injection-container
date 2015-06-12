@@ -1,8 +1,8 @@
 # Dependency Injection Container
 
-Container initialization :
+Creating a container is a matter of creating a ``Container`` instance :
 
-    $container = new Container;
+    $container = new Container();
 
 Services
 --------
