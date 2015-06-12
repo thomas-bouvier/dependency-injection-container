@@ -1,44 +1,28 @@
 <?php
 
-require 'App.php';
+require 'Container.php';
 require 'Request.php';
 require 'Controller.php';
 
 require 'Database\Connection.php';
 require 'Database\Model.php';
 
+$container = new Container;
 
-    // without dependency injection
-    new Database\Model(new Database\Connection('dbname', 'root', 'root'));
+$container['connection'] = function() {
+    return new Database\Connection('database', 'root', 'root');
+};
 
-    // dependency injection container initialization
-    $dic = new App;
+var_dump($container['connection']);
 
-    $dic->set('connection', function() {
-        return new Database\Connection('dbname', 'root', 'root');
-    });
+$container['model'] = $container->factory(function() use ($container) {
+    return new Database\Model($container['connection']);
+});
 
-    $dic->set('model', function() use ($dic) {
-        return new Database\Model($dic->get('connection'));
-    }, false);
+var_dump($container['model']);
 
-    // same instance
-    var_dump($dic->get('connection'));
-    var_dump($dic->get('connection'));
+$container['request'] = $container->instance(new Request);
 
-    // different instances
-    var_dump($dic->get('model'));
-    var_dump($dic->get('model'));
+var_dump($container['request']);
 
-    $connection = new Database\Connection('dbname', 'admin', 'admin');
-    $dic->setInstance($connection);
-
-    var_dump($dic->get('connection'));
-
-    // both work, but the instance is different
-    // strtolower($key) solves it
-    var_dump($dic->get('Request'));
-    var_dump($dic->get('request'));
-
-    var_dump($dic->get('Controller'));
-    var_dump($dic->get('controller'));
+var_dump($container['controller']);
