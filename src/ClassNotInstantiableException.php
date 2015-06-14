@@ -1,6 +1,6 @@
 <?php
 
-namespace IoC;
+namespace DIC;
 
 /**
  * Container main class.

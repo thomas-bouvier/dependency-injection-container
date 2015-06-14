@@ -1,6 +1,6 @@
 <?php
 
-namespace IoC;
+namespace DIC;
 
 require 'ClassNotInstantiableException.php';
 
@@ -41,10 +41,10 @@ class Container implements \ArrayAccess {
     /**
      * @param $key
      * @param $value
-     * @param bool $singleton
+     * @param bool $factory
      */
-    public function bind($key, $value, $singleton = false) {
-        $this->bindings[$key] = compact('value', 'singleton');
+    public function bind($key, $value, $factory = false) {
+        $this->bindings[$key] = compact('value', 'factory');
     }
 
     /**
@@ -69,16 +69,19 @@ class Container implements \ArrayAccess {
      * @throws ClassNotInstantiableException
      */
     protected function resolve($key, $args = []) {
-        if ($this->isSingleton($key) && $this->isSingletonResolved($key)) {
-            return $this->getSingletonInstance($key);
+        if (!$this->isFactory($key) && $this->isResolved($key)) {
+            return $this->getInstance($key);
         }
         if (isset($this->bindings[$key]['value'])) {
             $value = $this->bindings[$key]['value'];
-            if (is_object($value) && method_exists($value, '__invoke')) {
-                return $this->storeInstanceIfSingleton($key, $value($this));
+            if (!is_object($value)) {
+                return $value;
+            }
+            if ($this->isCallable($value)) {
+                return $this->storeInstanceIfNotFactory($key, $value($this));
             }
         }
-        return $this->storeInstanceIfSingleton($key, $this->buildObject($key, $args));
+        return $this->storeInstanceIfNotFactory($key, $this->buildObject($key, $args));
     }
 
     /**
@@ -101,7 +104,7 @@ class Container implements \ArrayAccess {
      *      the passed resolver
      */
     public function factory($callable) {
-        if (!is_object($callable) || !method_exists($callable, '__invoke')) {
+        if (!$this->isCallable($callable)) {
             throw new \InvalidArgumentException('Service definition is not a Closure or invokable object.');
         }
         $this->factories->attach($callable);
@@ -124,8 +127,8 @@ class Container implements \ArrayAccess {
      * @param $obj
      * @return mixed
      */
-    protected function storeInstanceIfSingleton($key, $obj) {
-        if ($this->isSingleton($key)) {
+    protected function storeInstanceIfNotFactory($key, $obj) {
+        if (!$this->isFactory($key)) {
             $this->instances[$key] = $obj;
         }
         return $obj;
@@ -135,31 +138,35 @@ class Container implements \ArrayAccess {
      * @param $key
      * @return bool
      */
-    public function isSingleton($key) {
+    public function isFactory($key) {
         if (!array_key_exists($key, $this->bindings)) {
             return false;
         }
         $binding = $this->bindings[$key];
-        if ($this->factories->contains($binding['value'])) {
-            $binding['singleton'] = true;
+        if (!is_object($binding['value'])) {
+            return false;
         }
-        return $binding['singleton'];
+        if ($this->factories->contains($binding['value'])) {
+            $this->factories->detach($binding['value']);
+            $binding['factory'] = true;
+        }
+        return $binding['factory'];
     }
 
     /**
      * @param $key
      * @return bool
      */
-    protected function isSingletonResolved($key) {
-        return $this->isSingleton($key) && array_key_exists($key, $this->instances);
+    protected function isResolved($key) {
+        return !$this->isFactory($key) && array_key_exists($key, $this->instances);
     }
 
     /**
      * @param $key
      * @return null
      */
-    protected function getSingletonInstance($key) {
-        if ($this->isSingletonResolved($key)) {
+    protected function getInstance($key) {
+        if ($this->isResolved($key)) {
             return $this->instances[$key];
         }
         return null;
@@ -216,7 +223,7 @@ class Container implements \ArrayAccess {
      */
     public function offsetUnset($key) {
         unset($this->bindings[$key]);
-        if ($this->isSingleton($key)) {
+        if (!$this->isFactory($key)) {
             unset($this->instances[$key]);
         }
     }
@@ -230,5 +237,13 @@ class Container implements \ArrayAccess {
      */
     public function offsetExists($key) {
         return array_key_exists($key, $this->bindings);
+    }
+
+    /**
+     * @param $value
+     * @return bool
+     */
+    protected function isCallable($value) {
+        return is_object($value) && method_exists($value, '__invoke');
     }
 }
