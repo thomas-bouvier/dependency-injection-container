@@ -25,6 +25,27 @@ class Container implements \ArrayAccess {
      */
     protected $instances = [];
 
+    /**
+     * @var
+     */
+    protected $factories;
+
+
+    /**
+     *
+     */
+    public function __construct() {
+        $this->factories = new \SplObjectStorage();
+    }
+
+    /**
+     * @param $key
+     * @param $value
+     * @param bool $singleton
+     */
+    public function bind($key, $value, $singleton = false) {
+        $this->bindings[$key] = compact('value', 'singleton');
+    }
 
     /**
      * Assigns an instance, a resolver or a class to be instantiated
@@ -43,31 +64,21 @@ class Container implements \ArrayAccess {
 
     /**
      * @param $key
-     * @param $value
-     * @param bool $singleton
+     * @param array $args
+     * @return object
+     * @throws ClassNotInstantiableException
      */
-    public function bind($key, $value, $singleton = false) {
-        $this->bindings[$key] = compact('value', 'singleton');
-    }
-
-    /**
-     * @param $key
-     * @param $value
-     */
-    public function singleton($key, $value) {
-        $this->bind($key, $value, true);
-    }
-
-    /**
-     * Marks a resolver being a factory service.
-     *
-     * @param $resolver
-     *      the resolver to be used as a factory service
-     * @return mixed
-     *      the passed resolver
-     */
-    public function factory($resolver) {
-        //TODO
+    protected function resolve($key, $args = []) {
+        if ($this->isSingleton($key) && $this->isSingletonResolved($key)) {
+            return $this->getSingletonInstance($key);
+        }
+        if (isset($this->bindings[$key]['value'])) {
+            $value = $this->bindings[$key]['value'];
+            if (is_object($value) && method_exists($value, '__invoke')) {
+                return $this->storeInstanceIfSingleton($key, $value($this));
+            }
+        }
+        return $this->storeInstanceIfSingleton($key, $this->buildObject($key, $args));
     }
 
     /**
@@ -82,37 +93,30 @@ class Container implements \ArrayAccess {
     }
 
     /**
-     * @param $key
-     * @return null
+     * Marks a resolver being a factory service.
+     *
+     * @param $callable
+     *      the resolver to be used as a factory service
+     * @return mixed
+     *      the passed resolver
      */
-    public function getBinding($key) {
-        if (!array_key_exists($key, $this->bindings)) {
-            return null;
+    public function factory($callable) {
+        if (!is_object($callable) || !method_exists($callable, '__invoke')) {
+            throw new \InvalidArgumentException('Service definition is not a Closure or invokable object.');
         }
-        return $this->bindings[$key];
+        $this->factories->attach($callable);
+        return $callable;
     }
 
     /**
      * @param $key
-     * @param array $args
-     * @return object
-     * @throws ClassNotInstantiableException
+     * @return null
      */
-    public function resolve($key, $args = []) {
-        $class = $this->getBinding($key);
-        if ($class === null) {
-            $class = $key;
+    protected function getBinding($key) {
+        if (!array_key_exists($key, $this->bindings)) {
+            return null;
         }
-        if ($this->isSingleton($key) && $this->isSingletonResolved($key)) {
-            return $this->getSingletonInstance($key);
-        }
-        if (isset($this->bindings[$key]['value']) && is_callable($this->bindings[$key]['value'])) {
-            return $this->storeInstanceIfSingleton($key, $this->bindings[$key]['value']());
-        }
-        if (isset($this->bindings[$key]['value']) && is_object($this->bindings[$key]['value'])) {
-            return $this->storeInstanceIfSingleton($key, $this->bindings[$key]['value']);
-        }
-        return $this->storeInstanceIfSingleton($key, $this->buildObject($class, $args));
+        return $this->bindings[$key];
     }
 
     /**
@@ -132,9 +136,12 @@ class Container implements \ArrayAccess {
      * @return bool
      */
     public function isSingleton($key) {
-        $binding = $this->getBinding($key);
-        if ($binding === null) {
+        if (!array_key_exists($key, $this->bindings)) {
             return false;
+        }
+        $binding = $this->bindings[$key];
+        if ($this->factories->contains($binding['value'])) {
+            $binding['singleton'] = true;
         }
         return $binding['singleton'];
     }
@@ -143,7 +150,7 @@ class Container implements \ArrayAccess {
      * @param $key
      * @return bool
      */
-    public function isSingletonResolved($key) {
+    protected function isSingletonResolved($key) {
         return $this->isSingleton($key) && array_key_exists($key, $this->instances);
     }
 
@@ -151,7 +158,7 @@ class Container implements \ArrayAccess {
      * @param $key
      * @return null
      */
-    public function getSingletonInstance($key) {
+    protected function getSingletonInstance($key) {
         if ($this->isSingletonResolved($key)) {
             return $this->instances[$key];
         }
@@ -223,12 +230,5 @@ class Container implements \ArrayAccess {
      */
     public function offsetExists($key) {
         return array_key_exists($key, $this->bindings);
-    }
-
-    /**
-     * @return array
-     */
-    public function getBindings() {
-        return $this->bindings;
     }
 }
